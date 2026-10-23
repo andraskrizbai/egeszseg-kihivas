@@ -1,0 +1,27 @@
+name: Decode icons
+on:
+  push:
+    branches: [main]
+    paths: ["icons-src/**"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  decode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode base64 icons to PNG
+        run: |
+          mkdir -p icons
+          for f in icons-src/*.png.b64; do
+            base64 -d "$f" > "icons/$(basename "$f" .b64)"
+          done
+          ls -l icons
+      - name: Commit PNGs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898333+github-actions[bot]@users.noreply.github.com"
+          git add icons
+          git diff --cached --quiet || git commit -m "PNG ikonok generálása"
+          git push
