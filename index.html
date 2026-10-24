@@ -2,6 +2,7 @@
 <html lang="hu">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-nF8BxBHdbyhviV8A1CZVjuUSFL0hZDn/II+nf9TgJl8=' 'sha256-IpYAsEzs4zI5D7U/ze8HiFiRPH01iGQdlNYqVD6NTfo='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://world.openfoodfacts.org; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Egészség Kihívás</title>
 <meta name="description" content="Böjt, alvás és kalória követő kéthetes etapokban">
@@ -52,7 +53,7 @@ input:focus,select:focus{outline:none;border-color:var(--blue);background:#fff}
 .grid2>div{min-width:0}
 .goalhead{display:flex;align-items:center;gap:10px}
 .gicon{width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px;flex:none}
-.gicon.fast{background:#FFF0D6}.gicon.sleep{background:#E3F3FF}.gicon.kcal{background:#FFE5E5}
+.gicon.fast{background:#FFF0D6}.gicon.sleep{background:#E3F3FF}.gicon.kcal{background:#FFE5E5}.gicon.wt{background:#F3E3FF}
 .res{margin-top:12px;padding:10px 12px;border-radius:12px;font-weight:800;background:#F7F7F7;display:flex;justify-content:space-between;align-items:center}
 .res.ok{background:var(--green-l);color:#2b7a00}
 .res.bad{background:#FFE8E8;color:#c22}
@@ -208,6 +209,14 @@ function shortDate(k){var d=parseKey(k);return MON_S[d.getMonth()]+" "+d.getDate
 function mondayOf(k){var d=parseKey(k);var w=(d.getDay()+6)%7;return addDays(k,-w);}
 function fmtH(h){if(h==null||isNaN(h))return "-";var m=Math.round(h*60);return Math.floor(m/60)+" ó "+pad(m%60)+" p";}
 function fmtN(n,dec){if(n==null||isNaN(n))return "-";return Number(n).toFixed(dec||0).replace(".",",");}
+function fmtHourNum(h){
+  if(!isFinite(h))return "-";
+  var r=Math.round(h*100)/100;
+  if(Math.abs(r-Math.round(r))<1e-9)return String(Math.round(r));
+  var dec=Math.abs(r*10-Math.round(r*10))<1e-9?1:2;
+  return fmtN(r,dec);
+}
+function fmtSigned(n,dec){if(n==null||isNaN(n))return "-";var s=fmtN(n,dec);return n>0?"+"+s:s;}
 function fmtK(n){if(n==null||isNaN(n))return "-";return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g," ");}
 function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];});}
 function mod(a,n){return ((a%n)+n)%n;}
@@ -310,26 +319,42 @@ function showPick(f){
   if(f.lastU){UI.pickUnit=f.lastU==="p"&&f.pg?"p":"g";UI.pickAmt=f.lastA;}
   var el=document.getElementById("foodPick");if(el){el.innerHTML=pickHTML();updatePick();el.scrollIntoView({block:"nearest",behavior:"smooth"});}
 }
+function offText(v,max){
+  if(typeof v!=="string")return "";
+  return v.replace(/[\u0000-\u001F\u007F]/g,"").trim().slice(0,max);
+}
 function offMap(p){
-  var nu=p.nutriments||{},k=nu["energy-kcal_100g"];
-  if(k==null&&nu.energy_100g!=null)k=nu.energy_100g/4.184;
-  if(k==null||isNaN(k))return null;
-  var name=(p.product_name_hu||p.product_name||"").trim();if(!name)return null;
-  var br=(p.brands||"").split(",")[0].trim();
+  if(!p||typeof p!=="object")return null;
+  var nu=p.nutriments;if(!nu||typeof nu!=="object")nu={};
+  var k=nu["energy-kcal_100g"];
+  if(k==null&&nu.energy_100g!=null)k=Number(nu.energy_100g)/4.184;
+  k=Number(k);
+  if(!isFinite(k)||k<0||k>20000)return null;
+  var name=offText(p.product_name_hu,120)||offText(p.product_name,120);
+  if(!name)return null;
+  var br=offText(p.brands,60).split(",")[0].trim().slice(0,40);
   var sq=Number(p.serving_quantity);
-  return {id:"o"+(p.code||name),n:name+(br?" ("+br+")":""),k:Math.round(Number(k)),p:r1(Number(nu.proteins_100g)||0),c:r1(Number(nu.carbohydrates_100g)||0),f:r1(Number(nu.fat_100g)||0),
-    pl:sq>0?"1 adag":"",pg:sq>0?Math.round(sq):0,cat:"W",src:"online",code:p.code||""};
+  var code=offText(p.code==null?"":String(p.code),32).replace(/\D/g,"");
+  var id=("o"+(code||name)).replace(/[\u0000-\u001F\u007F]/g,"").slice(0,100);
+  var full=name+(br?" ("+br+")":"");
+  if(full.length>140)full=full.slice(0,140);
+  return {id:id,n:full,k:Math.round(k),p:r1(Math.min(1000,Math.max(0,Number(nu.proteins_100g)||0))),c:r1(Math.min(1000,Math.max(0,Number(nu.carbohydrates_100g)||0))),f:r1(Math.min(1000,Math.max(0,Number(nu.fat_100g)||0))),
+    pl:sq>0&&sq<5000?"1 adag":"",pg:sq>0&&sq<5000?Math.round(sq):0,cat:"W",src:"online",code:code};
 }
 var OFF_FIELDS="code,product_name,product_name_hu,brands,nutriments,serving_quantity,serving_size";
 function offFetch(url){
   var ctl=window.AbortController?new AbortController():null,t=setTimeout(function(){if(ctl)ctl.abort();},15000);
-  return fetch(url,ctl?{signal:ctl.signal}:{}).then(function(r){clearTimeout(t);if(!r.ok&&r.status!==404)throw new Error("HTTP "+r.status);return r.json();});
+  var opt={referrerPolicy:"no-referrer"};
+  if(ctl)opt.signal=ctl.signal;
+  return fetch(url,opt).then(function(r){clearTimeout(t);if(!r.ok&&r.status!==404)throw new Error("HTTP "+r.status);return r.json();});
 }
 function offError(e){
   if(!navigator.onLine)return "Nincs internetkapcsolat. A beépített lista offline is működik.";
-  return "Nem sikerült elérni az Open Food Facts szolgáltatást. Próbáld újra később. ("+(e&&e.name==="AbortError"?"időtúllépés":(e&&e.message)||"hiba")+")";
+  return "Nem sikerült elérni az Open Food Facts szolgáltatást. Próbáld újra később. ("+(e&&e.name==="AbortError"?"időtúllépés":"hiba")+")";
 }
 function offSearch(q){
+  q=String(q||"").trim().slice(0,80);
+  if(!q)return;
   UI.online={q:q,status:"loading",items:[]};renderFoodRes();
   if(!navigator.onLine){UI.online.status="error";UI.online.msg=offError();renderFoodRes();return;}
   var u="https://world.openfoodfacts.org/cgi/search.pl?search_terms="+encodeURIComponent(q)+"&search_simple=1&action=process&json=1&page_size=24&fields="+OFF_FIELDS;
@@ -338,7 +363,7 @@ function offSearch(q){
     .catch(function(e){if(!UI.online||UI.online.q!==q)return;UI.online.status="error";UI.online.msg=navigator.onLine?"Az Open Food Facts névkeresése most nem válaszol (a szolgáltatás gyakran túlterhelt, percenként csak néhány keresést enged). Próbáld újra később, vagy keress vonalkóddal.":offError(e);renderFoodRes();});
 }
 function offBarcode(code){
-  code=String(code||"").replace(/\D/g,"");
+  code=String(code||"").replace(/\D/g,"").slice(0,20);
   if(code.length<6){toast("Adj meg egy érvényes vonalkódot (számjegyek)");return;}
   UI.foodQ="";var qi=document.getElementById("foodQ");if(qi)qi.value="";
   UI.online={q:"",barcode:code,status:"loading",items:[]};renderFoodRes();
@@ -352,26 +377,194 @@ function offBarcode(code){
 }
 
 /* ---------- állapot ---------- */
+function isObj(o){return !!o&&typeof o==="object"&&!Array.isArray(o);}
+function strLim(v,max){
+  if(typeof v!=="string")return "";
+  return v.replace(/[\u0000-\u001F\u007F]/g,"").trim().slice(0,max);
+}
+function validDateKey(k){
+  if(typeof k!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(k))return false;
+  var p=k.split("-"),y=+p[0],mo=+p[1],da=+p[2];
+  if(y<1970||y>2100)return false;
+  var dt=new Date(y,mo-1,da);
+  return dt.getFullYear()===y&&dt.getMonth()===mo-1&&dt.getDate()===da;
+}
+function validDT(s){
+  if(typeof s!=="string")return false;
+  var m=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(s);
+  if(!m)return false;
+  if(+m[4]>23||+m[5]>59||(m[6]&&+m[6]>59))return false;
+  var date=m[1]+"-"+m[2]+"-"+m[3];
+  if(!validDateKey(date))return false;
+  return date+"T"+m[4]+":"+m[5];
+}
+function validTime(s){
+  if(typeof s!=="string")return false;
+  var m=/^(\d{2}):(\d{2})$/.exec(s);
+  if(!m||+m[1]>23||+m[2]>59)return false;
+  return s;
+}
+function numIn(v,min,max,dec){
+  if(typeof v==="boolean"||v==null)return null;
+  if(typeof v==="string"){if(!v.trim())return null;v=v.replace(",",".");}
+  if(typeof v!=="number"&&typeof v!=="string")return null;
+  var n=Number(v);
+  if(!isFinite(n)||n<min||n>max)return null;
+  var f=Math.pow(10,dec==null?4:dec);
+  return Math.round(n*f)/f;
+}
+function cleanMeal(m){
+  if(!isObj(m))return null;
+  var k=numIn(m.k,0,100000,0);
+  if(k==null)return null;
+  var o={n:strLim(m.n,80)||"Étkezés",k:k};
+  var food=strLim(m.food,120);if(food)o.food=food;
+  var g=numIn(m.g,0,20000,0);if(m.g!=null&&m.g!==""&&g!=null)o.g=g;
+  ["p","c","f"].forEach(function(key){var x=numIn(m[key],0,10000,1);if(m[key]!=null&&m[key]!==""&&x!=null)o[key]=x;});
+  var fid=strLim(m.fid,100);if(fid)o.fid=fid;
+  return o;
+}
+function cleanDay(d){
+  if(!isObj(d))return null;
+  var o={};
+  var fs=validDT(d.fastStart),fe=validDT(d.fastEnd);
+  if(fs)o.fastStart=fs;
+  if(fe)o.fastEnd=fe;
+  var fm=numIn(d.fastManual,0,96,2);if(d.fastManual!=null&&d.fastManual!==""&&fm!=null)o.fastManual=fm;
+  var bed=validTime(d.bed),wake=validTime(d.wake);
+  if(bed)o.bed=bed;
+  if(wake)o.wake=wake;
+  var sm=numIn(d.sleepManual,0,24,2);if(d.sleepManual!=null&&d.sleepManual!==""&&sm!=null)o.sleepManual=sm;
+  if(Array.isArray(d.meals)){
+    var meals=[];
+    for(var i=0;i<d.meals.length&&meals.length<200;i++){var cm=cleanMeal(d.meals[i]);if(cm)meals.push(cm);}
+    if(meals.length)o.meals=meals;
+  }
+  var w=numIn(d.weight,20,400,1);
+  if(d.weight!=null&&d.weight!==""&&w!=null)o.weight=w;
+  return o;
+}
+function cleanFood(f){
+  if(!isObj(f))return null;
+  var n=strLim(f.n,120);
+  var k=numIn(f.k,0,20000,0);
+  if(!n||k==null)return null;
+  var id=strLim(f.id,100);
+  if(!id)return null;
+  var cat=strLim(f.cat,2);
+  if(!/^[A-Za-z]{0,2}$/.test(cat))cat="";
+  var src=strLim(f.src,12);
+  if(src!=="db"&&src!=="sajat"&&src!=="online")src="db";
+  var o={id:id,n:n,k:k,p:numIn(f.p,0,1000,1)||0,c:numIn(f.c,0,1000,1)||0,f:numIn(f.f,0,1000,1)||0,pl:strLim(f.pl,60),pg:numIn(f.pg,0,5000,0)||0,cat:cat,src:src};
+  var lg=numIn(f.lastG,0,20000,0);if(f.lastG!=null&&f.lastG!==""&&lg!=null)o.lastG=lg;
+  if(f.lastU==="p"||f.lastU==="g")o.lastU=f.lastU;
+  var la=numIn(f.lastA,0,10000,2);if(f.lastA!=null&&f.lastA!==""&&la!=null)o.lastA=la;
+  var code=strLim(typeof f.code==="string"?f.code:"",32).replace(/\D/g,"");if(code)o.code=code;
+  return o;
+}
+function cleanFoodList(arr,max){
+  var r=[];
+  if(!Array.isArray(arr))return r;
+  for(var i=0;i<arr.length&&r.length<max;i++){var f=cleanFood(arr[i]);if(f)r.push(f);}
+  return r;
+}
+function cleanSettings(s){
+  var d=defaults().settings;
+  if(!isObj(s))return d;
+  var name=strLim(s.name,40);if(name)d.name=name;
+  if(validDateKey(s.stageStart))d.stageStart=s.stageStart;
+  var ft=numIn(s.fastTarget,1,48,2);if(ft!=null)d.fastTarget=ft;
+  var smin=numIn(s.sleepMin,0,24,2);if(smin!=null)d.sleepMin=smin;
+  var smax=numIn(s.sleepMax,0,24,2);if(smax!=null)d.sleepMax=smax;
+  if(d.sleepMax<d.sleepMin)d.sleepMax=d.sleepMin;
+  var kmin=numIn(s.kcalMin,0,20000,0);if(kmin!=null)d.kcalMin=kmin;
+  var kmax=numIn(s.kcalMax,0,20000,0);if(kmax!=null)d.kcalMax=kmax;
+  if(d.kcalMax<d.kcalMin)d.kcalMax=d.kcalMin;
+  d.notifyFast=s.notifyFast===true;
+  return d;
+}
+function cleanDateFlags(o){
+  var r={};
+  if(!isObj(o))return r;
+  Object.keys(o).forEach(function(k){
+    if(!validDateKey(k)||!o[k]||Object.keys(r).length>=20000)return;
+    r[k]=true;
+  });
+  return r;
+}
+function cleanBadges(o){
+  var r={};
+  if(!isObj(o))return r;
+  Object.keys(o).forEach(function(k){
+    if(!/^[a-z0-9_-]{1,40}$/.test(k))return;
+    if(o[k]===true)r[k]=true;
+    else if(validDateKey(o[k]))r[k]=o[k];
+  });
+  return r;
+}
+function cleanSent(o){
+  var r={};
+  if(!isObj(o))return r;
+  var keys=Object.keys(o);
+  if(keys.length>60)keys=keys.slice(-60);
+  keys.forEach(function(k){
+    if(typeof k!=="string"||k.length>140)return;
+    if(k.indexOf("fast|")!==0&&k.indexOf("eat|")!==0)return;
+    if(/[\u0000-\u001F"<>]/.test(k))return;
+    if(o[k]===true)r[k]=true;
+    else if(typeof o[k]==="string"&&o[k].length<=40)r[k]=o[k];
+  });
+  return r;
+}
+function cleanTimer(t){
+  if(!isObj(t))return null;
+  var s=validDT(t.start);
+  return s?{start:s}:null;
+}
 function defaults(){
-  return {version:1,settings:{name:"András",stageStart:todayKey(),fastTarget:16,sleepMin:7,sleepMax:9,kcalMin:2000,kcalMax:2200},
-    days:{},timer:null,celebrated:{},seenBadges:{},customFoods:[],favFoods:[],recentFoods:[],lastStageSeen:0,created:new Date().toISOString()};
+  return {version:2,settings:{name:"András",stageStart:todayKey(),fastTarget:16,sleepMin:7,sleepMax:9,kcalMin:2000,kcalMax:2200,notifyFast:false},
+    days:{},timer:null,celebrated:{},seenBadges:{},sentNotifs:{},customFoods:[],favFoods:[],recentFoods:[],lastStageSeen:0,created:new Date().toISOString()};
 }
 function normalize(o){
   var d=defaults();
-  if(!o||typeof o!=="object")return d;
-  var s=o.settings||{};
-  for(var k in d.settings){if(s[k]!==undefined&&s[k]!==null&&s[k]!=="")d.settings[k]=s[k];}
-  ["fastTarget","sleepMin","sleepMax","kcalMin","kcalMax"].forEach(function(k){d.settings[k]=Number(d.settings[k]);});
-  d.days=(o.days&&typeof o.days==="object")?o.days:{};
-  d.timer=o.timer||null;d.celebrated=o.celebrated||{};d.seenBadges=o.seenBadges||{};
-  d.lastStageSeen=o.lastStageSeen||0;
-  d.customFoods=Array.isArray(o.customFoods)?o.customFoods:[];d.favFoods=Array.isArray(o.favFoods)?o.favFoods:[];d.recentFoods=Array.isArray(o.recentFoods)?o.recentFoods:[];d.created=o.created||d.created;
+  if(!isObj(o))return d;
+  d.settings=cleanSettings(o.settings);
+  d.days={};
+  if(isObj(o.days)){
+    var dayKeys=Object.keys(o.days).filter(validDateKey).sort();
+    if(dayKeys.length>20000)dayKeys=dayKeys.slice(-20000);
+    dayKeys.forEach(function(k){
+      var cd=cleanDay(o.days[k]);
+      if(cd&&Object.keys(cd).length)d.days[k]=cd;
+    });
+  }
+  d.timer=cleanTimer(o.timer);
+  d.celebrated=cleanDateFlags(o.celebrated);
+  d.seenBadges=cleanBadges(o.seenBadges);
+  d.sentNotifs=cleanSent(o.sentNotifs);
+  var ls=numIn(o.lastStageSeen,-1,10000,0);
+  d.lastStageSeen=ls==null?0:ls;
+  d.customFoods=cleanFoodList(o.customFoods,400);
+  d.favFoods=cleanFoodList(o.favFoods,200);
+  d.recentFoods=cleanFoodList(o.recentFoods,30);
+  if(typeof o.created==="string"&&o.created.length<=40)d.created=o.created;
+  d.version=2;
   return d;
 }
 var S;
 var storageOk=true;
 try{S=normalize(JSON.parse(localStorage.getItem(KEY)));if(!localStorage.getItem(KEY))save();}catch(e){S=defaults();storageOk=false;}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){storageOk=false;}}
+function save(){
+  try{
+    var prev=localStorage.getItem(KEY);
+    if(prev&&!localStorage.getItem(KEY+".pre-v2")){
+      var oldVer=null;
+      try{oldVer=JSON.parse(prev).version;}catch(err){}
+      if(oldVer!==2)localStorage.setItem(KEY+".pre-v2",prev);
+    }
+    localStorage.setItem(KEY,JSON.stringify(S));
+  }catch(e){storageOk=false;}
+}
 
 var UI={tab:"today",edit:todayKey(),cal:todayKey().slice(0,7),week:mondayOf(todayKey()),stageView:null};
 
@@ -389,6 +582,22 @@ function sleepH(d){
   return null;
 }
 function kcalT(d){if(d.meals&&d.meals.length){return d.meals.reduce(function(s,m){return s+(Number(m.k)||0);},0);}return null;}
+function dayWeight(k){
+  var d=getDay(k);
+  if(d.weight==null||d.weight==="")return null;
+  var w=Number(d.weight);
+  if(!isFinite(w))return null;
+  return Math.round(w*10)/10;
+}
+function latestWeight(){
+  var best=null;
+  Object.keys(S.days).sort().forEach(function(k){
+    if(!validDateKey(k)||k>todayKey())return;
+    var w=dayWeight(k);
+    if(w!=null)best={k:k,w:w};
+  });
+  return best;
+}
 function evalDay(k){
   var d=getDay(k),st=S.settings;
   var f=fastH(d),s=sleepH(d),c=kcalT(d);
@@ -499,6 +708,7 @@ function closeModal(){document.getElementById("modal").innerHTML="";}
 
 function afterChange(k){
   save();compute();
+  armNotifications();
   var e=evalDay(k);
   if(e.n===3&&!S.celebrated[k]){S.celebrated[k]=true;save();confetti();
     modal('<div class="big">🎉</div><h2>Tökéletes nap!</h2><p class="muted">Böjt, alvás és kalória is megvan.<br>+50 XP ('+huDate(k)+')</p><p style="font-weight:900;color:var(--orange);font-size:20px">🔥 '+C.streak+' napos sorozat</p><button class="btn block" data-act="closeModal">Szuper!</button>');}
@@ -548,20 +758,21 @@ function vToday(){
     var tm=S.timer;
     h+='<div class="card"><div class="goalhead"><div class="gicon fast">⏱️</div><div class="grow"><h3>Böjt időzítő</h3><div class="muted">'+(tm?"Fut, kezdés: "+tm.start.replace("T"," "):"Az utolsó étkezés után indítsd el")+'</div></div></div>'+
       '<div class="ringwrap mt"><div class="ring"><svg width="150" height="150" viewBox="0 0 150 150"><circle cx="75" cy="75" r="62" fill="none" stroke="#E5E5E5" stroke-width="14"/><circle id="ringArc" cx="75" cy="75" r="62" fill="none" stroke="#FF9600" stroke-width="14" stroke-linecap="round" stroke-dasharray="389.6" stroke-dashoffset="389.6"/></svg><div class="in"><div class="t" id="ringTime">'+(tm?"":"0:00")+'</div><div class="s" id="ringSub">'+(tm?"":"nem fut")+'</div></div></div>'+
-      '<div class="grow">'+(tm?'<button class="btn block red" data-act="stopFast">Első étkezés, vége</button><label class="f">Kezdés módosítása</label><input type="datetime-local" data-f="timerStart" value="'+tm.start+'"><button class="btn sm ghost block mt" data-act="cancelFast">Időzítő elvetése</button>':'<button class="btn block" data-act="startFast">Böjt indítása most</button><p class="muted">A leállításkor az eredmény a leállítás napjához kerül.</p>')+'</div></div></div>';
+      '<div class="grow">'+(tm?'<button class="btn block red" data-act="stopFast">Első étkezés, vége</button><label class="f">Kezdés módosítása</label><input type="datetime-local" data-f="timerStart" value="'+esc(tm.start)+'"><button class="btn sm ghost block mt" data-act="cancelFast">Időzítő elvetése</button>':'<button class="btn block" data-act="startFast">Böjt indítása most</button><p class="muted">A leállításkor az eredmény a leállítás napjához kerül.</p>')+'</div></div>'+
+      (S.settings.notifyFast?'<p class="muted" id="notifPlan">'+esc(notifPlanText())+'</p>':'<p class="muted">A Profilon bekapcsolhatod a jelzést a böjt végére, és egyet 1 órával az étkezési ablak zárása előtt.</p>')+'</div>';
   }
   var fh=e.fast;
   h+='<div class="card"><div class="goalhead"><div class="gicon fast">⏳</div><div class="grow"><h3>Böjt</h3><div class="muted">Előző esti utolsó étkezéstől a mai első étkezésig</div></div><span class="chk '+(e.f?"on":"")+'">✓</span></div>'+
-    '<div class="grid2"><div><label class="f">Utolsó étkezés</label><input type="datetime-local" data-f="fastStart" value="'+(d.fastStart||"")+'" placeholder="'+addDays(k,-1)+'T20:00"></div><div><label class="f">Első étkezés</label><input type="datetime-local" data-f="fastEnd" value="'+(d.fastEnd||"")+'"></div></div>'+
+    '<div class="grid2"><div><label class="f">Utolsó étkezés</label><input type="datetime-local" data-f="fastStart" value="'+esc(d.fastStart||"")+'" placeholder="'+esc(addDays(k,-1)+"T20:00")+'"></div><div><label class="f">Első étkezés</label><input type="datetime-local" data-f="fastEnd" value="'+esc(d.fastEnd||"")+'"></div></div>'+
     '<div class="chips"><button class="chip" data-act="fastPreset" data-v="20:00|12:00">20:00 - 12:00</button><button class="chip" data-act="fastPreset" data-v="19:00|11:00">19:00 - 11:00</button><button class="chip" data-act="fastPreset" data-v="18:00|10:00">18:00 - 10:00</button></div>'+
-    '<label class="f">Vagy add meg órában</label><input type="number" inputmode="decimal" step="0.25" min="0" max="72" data-f="fastManual" value="'+(d.fastManual!=null&&!(d.fastStart&&d.fastEnd)?d.fastManual:"")+'" placeholder="pl. 16,5">'+
+    '<label class="f">Vagy add meg órában</label><input type="number" inputmode="decimal" step="0.25" min="0" max="72" data-f="fastManual" value="'+esc(d.fastManual!=null&&!(d.fastStart&&d.fastEnd)?d.fastManual:"")+'" placeholder="pl. 16,5">'+
     '<div class="res '+(fh==null?"":(e.f?"ok":"bad"))+'"><span>'+(fh==null?"Még nincs adat":fmtH(fh))+'</span><span>'+(fh==null?"":(e.f?"Cél teljesítve +10 XP":"Még "+fmtH(st.fastTarget-fh)+" hiányzott"))+'</span></div>'+
     (fh!=null?'<button class="btn sm ghost mt" data-act="clearFast">Böjt adat törlése</button>':'')+'</div>';
 
   var sh=e.sleep;
   h+='<div class="card"><div class="goalhead"><div class="gicon sleep">😴</div><div class="grow"><h3>Alvás</h3><div class="muted">Az előző éjszaka, cél: '+fmtN(st.sleepMin,1)+' - '+fmtN(st.sleepMax,1)+' óra</div></div><span class="chk '+(e.s?"on":"")+'">✓</span></div>'+
-    '<div class="grid2"><div><label class="f">Lefekvés</label><input type="time" data-f="bed" value="'+(d.bed||"")+'"></div><div><label class="f">Ébredés</label><input type="time" data-f="wake" value="'+(d.wake||"")+'"></div></div>'+
-    '<label class="f">Vagy add meg órában</label><input type="number" inputmode="decimal" step="0.25" min="0" max="24" data-f="sleepManual" value="'+(d.sleepManual!=null&&!(d.bed&&d.wake)?d.sleepManual:"")+'" placeholder="pl. 7,5">'+
+    '<div class="grid2"><div><label class="f">Lefekvés</label><input type="time" data-f="bed" value="'+esc(d.bed||"")+'"></div><div><label class="f">Ébredés</label><input type="time" data-f="wake" value="'+esc(d.wake||"")+'"></div></div>'+
+    '<label class="f">Vagy add meg órában</label><input type="number" inputmode="decimal" step="0.25" min="0" max="24" data-f="sleepManual" value="'+esc(d.sleepManual!=null&&!(d.bed&&d.wake)?d.sleepManual:"")+'" placeholder="pl. 7,5">'+
     '<div class="res '+(sh==null?"":(e.s?"ok":"bad"))+'"><span>'+(sh==null?"Még nincs adat":fmtH(sh))+'</span><span>'+(sh==null?"":(e.s?"Cél teljesítve +10 XP":(sh<st.sleepMin?"Kevés alvás":"Túl sok alvás")))+'</span></div>'+
     (sh!=null?'<button class="btn sm ghost mt" data-act="clearSleep">Alvás adat törlése</button>':'')+'</div>';
 
@@ -580,8 +791,18 @@ function vToday(){
     '<details class="fdet" data-det="quick"'+(UI.det&&UI.det.quick?" open":"")+'><summary>⚡ Gyors kcal megadás</summary><div class="row mt"><input id="kcalIn" type="number" inputmode="numeric" min="0" max="10000" placeholder="kcal" class="grow"><button class="btn" data-act="addMeal">+ Hozzáad</button></div>'+
     '<p class="muted">Ha csak a kalóriát tudod. A "Napi összes" lecseréli az eddigi tételeket.</p></details>'+
     customFoodHTML()+'</div>';
-  h+='<p class="tip">Tipp: a Napló fülön bármelyik korábbi napot javíthatod.</p>';
+  h+=weightCard(k);
+  h+='<p class="tip">Tipp: a Napló fülön bármelyik korábbi napot javíthatod, a testsúlyt is.</p>';
   return h;
+}
+function weightCard(k){
+  var w=dayWeight(k),last=latestWeight();
+  var h='<div class="card"><div class="goalhead"><div class="gicon wt">⚖️</div><div class="grow"><h3>Testsúly</h3><div class="muted">Napi egy mérés, kilogramm, egy tizedes. Nem ad XP-t, a liga és a sorozat nem változik.</div></div></div>';
+  h+='<label class="f">Testsúly (kg)</label><input id="weightIn" type="text" inputmode="decimal" autocomplete="off" data-f="weight" value="'+(w!=null?esc(String(w).replace(".",",")):"")+'" placeholder="pl. 82,4">';
+  if(w!=null)h+='<div class="res ok"><span>'+fmtN(w,1)+' kg</span><span>Erre a napra mentve</span></div><button class="btn sm ghost mt" data-act="clearWeight">Testsúly törlése</button>';
+  else if(last)h+='<p class="muted">Ezen a napon nincs mérés. Legutóbbi: '+fmtN(last.w,1)+' kg ('+esc(shortDate(last.k))+').</p>';
+  else h+='<p class="muted">Még nincs rögzített testsúly.</p>';
+  return h+'</div>';
 }
 
 function macroLine(meals){
@@ -656,8 +877,10 @@ function vCal(){
   }
   h+='</div><div class="legend mt"><span style="--c:var(--gold)">3/3</span><span style="--c:var(--green)">2/3</span><span style="--c:#E0E0E0">0-1/3</span><span style="--c:#E3F3FF">Jégkocka</span></div><p class="muted" style="text-align:center">Koppints egy napra a szerkesztéshez.</p></div>';
   // napi lista az adott hónapra
-  var rows=[];for(var d2=dim;d2>=1;d2--){var k2=y+"-"+pad(m+1)+"-"+pad(d2);if(k2>t)continue;var e2=evalDay(k2);if(!e2.logged)continue;
-    rows.push('<div class="hist" data-act="openDay" data-v="'+k2+'" style="cursor:pointer"><div class="row sp"><b>'+shortDate(k2)+' '+WD[parseKey(k2).getDay()]+'</b><b style="color:var(--gold-d)">+'+dayXP(e2)+' XP</b></div><div class="muted">'+(e2.f?"✅":"❌")+' Böjt '+fmtH(e2.fast)+' · '+(e2.s?"✅":"❌")+' Alvás '+fmtH(e2.sleep)+' · '+(e2.c?"✅":"❌")+' '+fmtK(e2.kcal)+' kcal</div></div>');}
+  var rows=[];for(var d2=dim;d2>=1;d2--){var k2=y+"-"+pad(m+1)+"-"+pad(d2);if(k2>t)continue;var e2=evalDay(k2),w2=dayWeight(k2);if(!e2.logged&&w2==null)continue;
+    var goalLine=e2.logged?((e2.f?"✅":"❌")+" Böjt "+fmtH(e2.fast)+" · "+(e2.s?"✅":"❌")+" Alvás "+fmtH(e2.sleep)+" · "+(e2.c?"✅":"❌")+" "+fmtK(e2.kcal)+" kcal"):"Nincs böjt, alvás vagy kalória";
+    if(w2!=null)goalLine+=" · ⚖️ "+fmtN(w2,1)+" kg";
+    rows.push('<div class="hist" data-act="openDay" data-v="'+k2+'" style="cursor:pointer"><div class="row sp"><b>'+shortDate(k2)+' '+WD[parseKey(k2).getDay()]+'</b><b style="color:var(--gold-d)">'+(e2.logged?"+"+dayXP(e2)+" XP":"")+'</b></div><div class="muted">'+goalLine+'</div></div>');}
   h+='<div class="card"><h3>Naplózott napok</h3>'+(rows.length?rows.join(""):'<p class="muted">Ebben a hónapban még nincs bejegyzés.</p>')+'</div>';
   return h;
 }
@@ -697,6 +920,7 @@ function vStats(){
   h+='<div class="card"><h3>⏳ Böjt (óra)</h3>'+chart(w.f,{title:"Böjt",max:20,step:4,lo:st.fastTarget,hi:null,lab:function(g){return g;},val:function(v){return fmtN(v,1);}})+'</div>';
   h+='<div class="card"><h3>😴 Alvás (óra)</h3>'+chart(w.s,{title:"Alvás",max:10,step:2,lo:st.sleepMin,hi:st.sleepMax,lab:function(g){return g;},val:function(v){return fmtN(v,1);}})+'</div>';
   h+='<div class="card"><h3>🥗 Kalória (kcal)</h3>'+chart(w.c,{title:"Kalória",max:2600,step:500,lo:st.kcalMin,hi:st.kcalMax,lab:function(g){return g;},val:function(v){return Math.round(v);}})+'</div>';
+  h+=weightSection();
   h+='<div class="card"><h3>Összesítés</h3><div class="stat3 mt"><div><b>'+fmtK(C.totalFast)+'</b><span>böjt óra összesen</span></div><div><b>'+C.perfect+'</b><span>tökéletes nap</span></div><div><b>'+C.best+'</b><span>leghosszabb sorozat</span></div></div></div>';
   return h;
 }
@@ -711,16 +935,248 @@ function vProfile(){
   h+='<div class="card"><div class="row sp"><h3>Jelvények</h3><b class="muted">'+on+'/'+C.badges.length+'</b></div><div class="badges mt">'+C.badges.map(function(b){return '<div class="badge'+(b.on?"":" locked")+'"><div class="bi">'+b.icon+'</div><b>'+b.name+'</b><small>'+b.desc+'</small></div>';}).join("")+'</div></div>';
   h+='<div class="card"><h3>Beállítások</h3>'+
     '<label class="f">Név</label><input id="sName" value="'+esc(st.name)+'">'+
-    '<label class="f">Etap kezdőnapja (14 napos etapok innen gördülnek)</label><input type="date" id="sStart" value="'+st.stageStart+'">'+
-    '<label class="f">Böjt cél (óra)</label><input type="number" step="0.5" min="1" max="48" id="sFast" value="'+st.fastTarget+'">'+
-    '<div class="grid2"><div><label class="f">Alvás min (óra)</label><input type="number" step="0.25" min="0" max="24" id="sSMin" value="'+st.sleepMin+'"></div><div><label class="f">Alvás max (óra)</label><input type="number" step="0.25" min="0" max="24" id="sSMax" value="'+st.sleepMax+'"></div></div>'+
-    '<div class="grid2"><div><label class="f">Kalória min</label><input type="number" step="50" min="0" id="sKMin" value="'+st.kcalMin+'"></div><div><label class="f">Kalória max</label><input type="number" step="50" min="0" id="sKMax" value="'+st.kcalMax+'"></div></div>'+
-    '<button class="btn block mt" data-act="saveSettings">Mentés</button><p class="muted">A célok módosítása visszamenőleg is újraszámolja az eredményeket.</p></div>';
-  h+='<div class="card"><h3>Biztonsági mentés</h3><p class="muted">Az adatok csak ebben a böngészőben tárolódnak. Időnként ments JSON fájlba. A mentés a saját ételeket, kedvenceket és legutóbbiakat is tartalmazza ('+(S.customFoods||[]).length+' saját étel).</p>'+
+    '<label class="f">Etap kezdőnapja (14 napos etapok innen gördülnek)</label><input type="date" id="sStart" value="'+esc(st.stageStart)+'">'+
+    '<label class="f">Böjt cél (óra)</label><input type="number" step="0.5" min="1" max="48" id="sFast" value="'+esc(st.fastTarget)+'">'+
+    '<div class="grid2"><div><label class="f">Alvás min (óra)</label><input type="number" step="0.25" min="0" max="24" id="sSMin" value="'+esc(st.sleepMin)+'"></div><div><label class="f">Alvás max (óra)</label><input type="number" step="0.25" min="0" max="24" id="sSMax" value="'+esc(st.sleepMax)+'"></div></div>'+
+    '<div class="grid2"><div><label class="f">Kalória min</label><input type="number" step="50" min="0" id="sKMin" value="'+esc(st.kcalMin)+'"></div><div><label class="f">Kalória max</label><input type="number" step="50" min="0" id="sKMax" value="'+esc(st.kcalMax)+'"></div></div>'+
+    '<button class="btn block mt" data-act="saveSettings">Mentés</button><p class="muted">A célok módosítása visszamenőleg is újraszámolja az eredményeket. A testsúly ettől független, XP-t nem ad.</p></div>';
+  h+=notifSettingsHTML();
+  h+='<div class="card"><h3>Biztonsági mentés</h3><p class="muted">Az adatok csak ebben a böngészőben tárolódnak. Időnként ments JSON fájlba. A mentés tartalmazza a naplót, a testsúlyt, a saját ételeket, a kedvenceket és az értesítés kapcsolóját ('+(S.customFoods||[]).length+' saját étel).</p>'+
     '<div class="row wrapf"><button class="btn blue grow" data-act="export">Exportálás</button><button class="btn ghost grow" data-act="import">Importálás</button></div><input type="file" id="impFile" accept="application/json,.json" style="display:none"></div>';
   h+='<div class="card danger"><h3>Újrakezdés</h3><p class="muted">Minden napló, XP, jelvény és beállítás törlődik.</p><button class="btn red block" data-act="reset">Minden adat törlése</button></div>';
   h+='<p class="tip">Egészség Kihívás · offline, egyetlen fájl · '+Object.keys(S.days).length+' nap tárolva</p>';
   return h;
+}
+
+/* ---------- testsúly a statisztikában ---------- */
+function stageBaseline(start){
+  var onStart=null,before=null,firstIn=null;
+  Object.keys(S.days).sort().forEach(function(k){
+    if(!validDateKey(k)||k>todayKey())return;
+    var w=dayWeight(k);if(w==null)return;
+    if(k===start)onStart={k:k,w:w};
+    else if(k<start)before={k:k,w:w};
+    else if(!firstIn)firstIn={k:k,w:w};
+  });
+  if(onStart)return {pt:onStart,carried:false};
+  if(before)return {pt:before,carried:true};
+  if(firstIn)return {pt:firstIn,carried:false};
+  return null;
+}
+function stageEndWeight(start,end){
+  var limit=end<todayKey()?end:todayKey();
+  var best=null;
+  Object.keys(S.days).sort().forEach(function(k){
+    if(k<start||k>limit)return;
+    var w=dayWeight(k);if(w!=null)best={k:k,w:w};
+  });
+  return best;
+}
+function weightChart(pts,baseW){
+  var vals=[];
+  pts.forEach(function(p){if(p.v!=null)vals.push(p.v);});
+  if(baseW!=null)vals.push(baseW);
+  if(!vals.length)return '<p class="muted">Ebben az etapban még nincs mérés.</p>';
+  var mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals);
+  if(mx-mn<1){mn-=0.6;mx+=0.6;}else{mn-=0.4;mx+=0.4;}
+  var W=320,H=188,L=40,R=8,T=16,B=28,iw=W-L-R,ih=H-T-B;
+  function x(i){return pts.length<=1?L+iw/2:L+(i/(pts.length-1))*iw;}
+  function y(v){return T+ih-((v-mn)/(mx-mn))*ih;}
+  var s='<svg viewBox="0 0 '+W+' '+H+'" width="100%" role="img" aria-label="Testsúly">';
+  for(var g=0;g<3;g++){
+    var gv=mn+(mx-mn)*g/2;
+    s+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y(gv).toFixed(2)+'" y2="'+y(gv).toFixed(2)+'" stroke="#EEE"/>';
+    s+='<text x="'+(L-4)+'" y="'+(y(gv)+3).toFixed(2)+'" font-size="10" text-anchor="end" fill="#999">'+fmtN(gv,1)+'</text>';
+  }
+  if(baseW!=null)s+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y(baseW).toFixed(2)+'" y2="'+y(baseW).toFixed(2)+'" stroke="#AFAFAF" stroke-dasharray="4 3"/>';
+  var d="",started=false;
+  pts.forEach(function(p,i){
+    if(p.v==null)return;
+    d+=(started?"L":"M")+x(i).toFixed(2)+" "+y(p.v).toFixed(2)+" ";
+    started=true;
+  });
+  if(started)s+='<path d="'+d+'" fill="none" stroke="#1CB0F6" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>';
+  pts.forEach(function(p,i){
+    if(p.v==null)return;
+    s+='<circle cx="'+x(i).toFixed(2)+'" cy="'+y(p.v).toFixed(2)+'" r="3.5" fill="#1899D6"><title>'+esc(p.label)+" "+fmtN(p.v,1)+' kg</title></circle>';
+  });
+  pts.forEach(function(p,i){
+    if(pts.length>8&&i%2)return;
+    s+='<text x="'+x(i).toFixed(2)+'" y="'+(H-8)+'" font-size="9" font-weight="800" text-anchor="middle" fill="#999">'+esc(p.label)+'</text>';
+  });
+  return s+"</svg>";
+}
+function weightSection(){
+  var any=latestWeight();
+  if(C.cur<0){
+    return '<div class="card"><h3>⚖️ Testsúly</h3><p class="muted">Az etap még nem indult. A mérést a Ma fülön rögzítheted.</p>'+(any?'<p class="muted">Legutóbbi: '+fmtN(any.w,1)+' kg ('+esc(shortDate(any.k))+').</p>':'<p class="muted">Még nincs mérés.</p>')+'</div>';
+  }
+  var vi=UI.wStage==null?C.cur:Math.max(0,Math.min(C.cur,UI.wStage));
+  var s=C.stages[vi];
+  var base=stageBaseline(s.start);
+  var endPt=stageEndWeight(s.start,s.end);
+  var current=vi===C.cur?(any||endPt):endPt;
+  var h='<div class="card"><div class="row sp"><button class="btn ghost icon" data-act="wstage" data-v="-1" '+(vi<=0?'disabled style="opacity:.3"':'')+'>‹</button><div style="text-align:center"><h3>⚖️ Testsúly</h3><div class="muted">'+esc(shortDate(s.start))+' - '+esc(shortDate(s.end))+(vi===C.cur?" · jelenlegi etap":"")+'</div></div><button class="btn ghost icon" data-act="wstage" data-v="1" '+(vi>=C.cur?'disabled style="opacity:.3"':'')+'>›</button></div>';
+  if(!base&&!current){
+    h+='<p class="muted">Még nincs testsúly. A Ma vagy a Napló fülön rögzítheted, naponta egyet.</p></div>';
+    return h;
+  }
+  var change=base&&current?Math.round((current.w-base.pt.w)*10)/10:null;
+  var curLabel=vi===C.cur?"jelenlegi, kg":"etap vége, kg";
+  h+='<div class="stat3 mt"><div><b>'+(current?fmtN(current.w,1):"-")+'</b><span>'+curLabel+'</span></div><div><b>'+(base?fmtN(base.pt.w,1):"-")+'</b><span>etap eleje, kg</span></div><div><b>'+(change==null?"-":fmtSigned(change,1))+'</b><span>változás, kg</span></div></div>';
+  var note=[];
+  if(current)note.push((vi===C.cur?"Jelenlegi: ":"Utolsó mérés: ")+shortDate(current.k));
+  if(base)note.push("Etap eleje: "+shortDate(base.pt.k)+(base.carried?" (az etap előtti legutóbbi mérés)":""));
+  if(note.length)h+='<p class="muted" id="weightSummary">'+esc(note.join(" · "))+'</p>';
+  var pts=[],list=[];
+  for(var j=0;j<14;j++){
+    var k=addDays(s.start,j),wv=k<=todayKey()?dayWeight(k):null;
+    pts.push({label:String(parseKey(k).getDate())+".",v:wv});
+    if(wv!=null)list.push(shortDate(k)+" "+fmtN(wv,1)+" kg");
+  }
+  h+=weightChart(pts,base?base.pt.w:null);
+  if(list.length)h+='<p class="muted" id="weightList">'+esc(list.join(", "))+'</p>';
+  h+='<p class="muted">A szaggatott vonal az etap eleji érték. A testsúly nem számít bele a napi XP-be.</p></div>';
+  return h;
+}
+
+/* ---------- böjt értesítések ---------- */
+var notifIv=null;
+function isIOS(){
+  var ua=navigator.userAgent||"";
+  if(/iPad|iPhone|iPod/.test(ua))return true;
+  return navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1;
+}
+function isStandalone(){
+  return window.matchMedia("(display-mode: standalone)").matches||window.navigator.standalone===true;
+}
+function eatWindowHours(){
+  var w=24-Number(S.settings.fastTarget);
+  if(!isFinite(w)||w<=0)return 0;
+  return Math.round(w*100)/100;
+}
+function fmtWhen(ms){
+  var d=new Date(ms);
+  return MON_S[d.getMonth()]+" "+d.getDate()+". "+pad(d.getHours())+":"+pad(d.getMinutes());
+}
+function fastEvent(){
+  if(!S.timer||!S.timer.start)return null;
+  var st=parseDT(S.timer.start);
+  if(!st)return null;
+  var target=Number(S.settings.fastTarget);
+  if(!(target>0))return null;
+  var at=st.getTime()+target*36e5;
+  return {id:"fast|"+S.timer.start+"|"+target,at:at,kind:"fast",title:"Böjt kész",body:"A "+fmtHourNum(target)+" órás böjt teljesült. Jó étvágyat az étkezési ablakhoz."};
+}
+function relevantEatEnd(){
+  var wH=eatWindowHours();
+  if(!(wH>1))return null;
+  var now=Date.now(),grace=15*60*1000,best=null;
+  Object.keys(S.days).forEach(function(k){
+    var d=S.days[k];
+    if(!d||!d.fastEnd)return;
+    var dt=parseDT(d.fastEnd);
+    if(!dt)return;
+    var ms=dt.getTime();
+    if(now>ms+wH*36e5+grace)return;
+    if(ms>now+36*36e5)return;
+    if(!best||ms>=best.ms)best={k:k,str:d.fastEnd,ms:ms};
+  });
+  return best;
+}
+function eatEvent(){
+  var wH=eatWindowHours();
+  if(!(wH>1))return null;
+  var end=relevantEatEnd();
+  if(!end)return null;
+  var warnH=Math.round((wH-1)*100)/100;
+  return {id:"eat|"+end.str+"|"+wH,at:end.ms+warnH*36e5,closeAt:end.ms+wH*36e5,kind:"eat",title:"Az étkezési ablak hamarosan zárul",body:"Az étkezés óta "+fmtHourNum(warnH)+" óra telt el. Az "+fmtHourNum(wH)+" órás ablak 1 óra múlva zárul."};
+}
+function notifPlanText(){
+  if(!S.settings.notifyFast)return "";
+  var parts=[],f=fastEvent(),e=eatEvent();
+  if(f&&!(S.sentNotifs&&S.sentNotifs[f.id]))parts.push("Böjt vége: "+fmtWhen(f.at));
+  else if(f)parts.push("Böjt vége: már jelezve");
+  if(e&&!(S.sentNotifs&&S.sentNotifs[e.id]))parts.push("Ablakzárás előtt 1 órával: "+fmtWhen(e.at));
+  else if(e)parts.push("Ablak figyelmeztetés: már jelezve");
+  if(!parts.length)return "Nincs közelgő jelzés. Indíts böjtöt, vagy rögzítsd az első étkezést.";
+  return "Következő jelzés · "+parts.join(" · ");
+}
+function notifPermission(){
+  try{
+    if(typeof Notification==="undefined")return "unsupported";
+    return Notification.permission||"default";
+  }catch(e){return "unsupported";}
+}
+function markSent(id){
+  S.sentNotifs=S.sentNotifs||{};
+  S.sentNotifs[id]=new Date().toISOString();
+  var keys=Object.keys(S.sentNotifs);
+  while(keys.length>60)delete S.sentNotifs[keys.shift()];
+}
+function showSysNotification(title,body,tag){
+  var opts={body:body,tag:tag,lang:"hu",renotify:true,icon:new URL("icons/icon-192.png",location.href).href};
+  function pageNotify(){
+    try{if(typeof Notification!=="undefined")new Notification(title,opts);}catch(e){}
+  }
+  if(navigator.serviceWorker){
+    navigator.serviceWorker.ready.then(function(reg){
+      if(reg&&reg.showNotification)return reg.showNotification(title,opts);
+      pageNotify();
+    }).catch(pageNotify);
+  }else pageNotify();
+}
+function checkNotifs(){
+  try{
+    if(!S.settings.notifyFast)return;
+    if(notifPermission()!=="granted")return;
+    [fastEvent(),eatEvent()].forEach(function(ev){
+      if(!ev)return;
+      if(S.sentNotifs&&S.sentNotifs[ev.id])return;
+      if(Date.now()<ev.at)return;
+      if(ev.kind==="eat"&&ev.closeAt&&Date.now()>ev.closeAt+15*60*1000)return;
+      markSent(ev.id);
+      save();
+      showSysNotification(ev.title,ev.body,ev.kind);
+      toast(ev.title+" — "+ev.body);
+      var plan=document.getElementById("notifPlan");
+      if(plan)plan.textContent=notifPlanText();
+    });
+  }catch(e){}
+}
+function armNotifications(){
+  if(notifIv){clearInterval(notifIv);notifIv=null;}
+  if(!S.settings.notifyFast)return;
+  checkNotifs();
+  notifIv=setInterval(checkNotifs,1000);
+}
+function askNotifPermission(){
+  return new Promise(function(resolve){
+    var done=false;
+    function finish(v){if(done)return;done=true;resolve(v||"denied");}
+    try{
+      var ret=Notification.requestPermission(finish);
+      if(ret&&typeof ret.then==="function")ret.then(finish,function(){finish("denied");});
+    }catch(e){finish("denied");}
+  });
+}
+function notifSettingsHTML(){
+  var st=S.settings,w=eatWindowHours(),warn=w>1?Math.round((w-1)*100)/100:0;
+  var lines=w>1
+    ? "A böjt a célidőnél jelez ("+fmtHourNum(st.fastTarget)+" óra). Az első étkezés után "+fmtHourNum(warn)+" órával még egy jelzés jön: az "+fmtHourNum(w)+" órás étkezési ablakból 1 óra van hátra."
+    : "A böjt a célidőnél jelez ("+fmtHourNum(st.fastTarget)+" óra).";
+  var perm=notifPermission(),status="";
+  if(st.notifyFast&&perm==="granted")status='<div class="res ok"><span>Bekapcsolva</span><span>Engedély megadva</span></div>';
+  else if(perm==="denied")status='<div class="res bad"><span>A böngésző tiltja az értesítést</span><span>Engedély kell</span></div>';
+  else if(perm==="unsupported")status='<p class="muted">Ebben a nézetben az értesítés nem érhető el.</p>';
+  var ios=isIOS()&&!isStandalone()?'<p class="muted">iPhone-on csak a Főképernyőhöz adott app kérhet engedélyt (iOS 16.4 vagy újabb). Safari böngészőlapon nem működik.</p>':"";
+  var btn=st.notifyFast
+    ? '<button class="btn ghost block mt" data-act="disableNotify">Értesítések kikapcsolása</button>'
+    : '<button class="btn block mt" data-act="enableNotify">Értesítések bekapcsolása</button>';
+  var plan=st.notifyFast?'<p class="muted" id="notifPlan">'+esc(notifPlanText())+'</p>':"";
+  return '<div class="card"><h3>Értesítések</h3><p class="muted">'+lines+' Az időpont a mentett böjtkezdetből és az első étkezés idejéből számolódik, oldalújratöltés után is.</p>'+
+    '<p class="muted">Nyitott appban megjelenik a jelzés (asztali gépen a háttérben hagyott lapon is, amíg a böngésző nem zárja be). Teljesen bezárt appnál szerver nélkül nem ébreszthető fel, sem iPhone-on, sem Androidon. Ha később megnyitod, a még aktuális jelzést pótolja. Kikapcsoláskor az app nem jelez tovább; a böngésző engedélye megmarad.</p>'+
+    ios+status+plan+btn+'</div>';
 }
 
 /* ---------- időzítő ---------- */
@@ -745,13 +1201,16 @@ document.addEventListener("click",function(ev){
     case "closeModal":if(el.classList.contains("modalbg")&&ev.target!==el)break;closeModal();break;
     case "day":var nk=addDays(UI.edit,+v);if(nk<=todayKey()){UI.edit=nk;render();}break;
     case "gotoToday":UI.edit=todayKey();render();break;
-    case "openDay":UI.edit=v;UI.tab="today";window.scrollTo(0,0);render();break;
+    case "openDay":if(!validDateKey(v)||v>todayKey())break;UI.edit=v;UI.tab="today";window.scrollTo(0,0);render();break;
     case "stage":UI.stageView=(UI.stageView==null?C.cur:UI.stageView)+(+v);render();break;
     case "cal":var p=UI.cal.split("-"),dt=new Date(+p[0],+p[1]-1+(+v),1);UI.cal=dt.getFullYear()+"-"+pad(dt.getMonth()+1);render();break;
     case "week":var nw=addDays(UI.week,7*(+v));if(nw<=todayKey()){UI.week=nw;render();}break;
-    case "startFast":S.timer={start:localDT(new Date())};save();render();toast("Böjt elindítva. Hajrá!");break;
-    case "cancelFast":if(confirm("Biztosan elveted a futó böjtöt?")){S.timer=null;save();render();}break;
+    case "wstage":if(v!=="-1"&&v!=="1")break;UI.wStage=(UI.wStage==null?C.cur:UI.wStage)+(+v);render();break;
+    case "startFast":S.timer={start:localDT(new Date())};save();armNotifications();render();toast("Böjt elindítva. Hajrá!");break;
+    case "cancelFast":if(confirm("Biztosan elveted a futó böjtöt?")){S.timer=null;save();armNotifications();render();}break;
     case "stopFast":
+      if(!S.timer||!validDT(S.timer.start))break;
+      checkNotifs();
       var now=new Date(),dk=fmt(now),dd=ensureDay(dk);
       if((dd.fastStart&&dd.fastEnd)||dd.fastManual!=null){if(!confirm("Erre a napra már van böjt adat. Felülírod?"))break;}
       dd.fastStart=S.timer.start;dd.fastEnd=localDT(now);delete dd.fastManual;S.timer=null;UI.edit=dk;
@@ -759,6 +1218,15 @@ document.addEventListener("click",function(ev){
     case "fastPreset":var pr=v.split("|");d=ensureDay(k);d.fastStart=addDays(k,-1)+"T"+pr[0];d.fastEnd=k+"T"+pr[1];delete d.fastManual;afterChange(k);break;
     case "clearFast":d=ensureDay(k);delete d.fastStart;delete d.fastEnd;delete d.fastManual;afterChange(k);break;
     case "clearSleep":d=ensureDay(k);delete d.bed;delete d.wake;delete d.sleepManual;afterChange(k);break;
+    case "clearWeight":d=ensureDay(k);delete d.weight;afterChange(k);break;
+    case "enableNotify":
+      if(typeof Notification==="undefined"){toast(isIOS()&&!isStandalone()?"iPhone-on előbb tedd a főképernyőre: Megosztás, majd Főképernyőhöz adás.":"Ez a böngésző nem támogatja az értesítéseket.");break;}
+      askNotifPermission().then(function(p){
+        if(p==="granted"){S.settings.notifyFast=true;save();armNotifications();render();toast("Értesítések bekapcsolva");}
+        else{S.settings.notifyFast=false;save();if(notifIv){clearInterval(notifIv);notifIv=null;}render();toast("Az értesítéshez engedély kell. Ha letiltottad, a böngésző beállításaiban kapcsolhatod vissza.");}
+      });
+      break;
+    case "disableNotify":S.settings.notifyFast=false;if(notifIv){clearInterval(notifIv);notifIv=null;}save();render();toast("Értesítések kikapcsolva");break;
     case "mealName":UI.mealIdx=+v;document.querySelectorAll("#mealNames .chip").forEach(function(c,i){c.classList.toggle("on",i===+v);});break;
     case "addMeal":
       var inp=document.getElementById("kcalIn"),val=Math.round(Number(String(inp.value).replace(",",".")));
@@ -788,9 +1256,10 @@ document.addEventListener("click",function(ev){
     case "offBarcode":offBarcode(document.getElementById("barcodeIn").value);break;
     case "saveCustom":
       var gv=function(id){return String(document.getElementById(id).value).replace(",",".").trim();};
-      var cn=gv("cfN"),ck=Number(gv("cfK"));
-      if(!cn||!(ck>=0)||gv("cfK")===""){toast("A név és a kcal / 100 g kötelező");break;}
-      var cfo={id:"c"+Date.now().toString(36),n:cn,k:Math.round(ck),p:r1(Number(gv("cfP"))||0),c:r1(Number(gv("cfC"))||0),f:r1(Number(gv("cfF"))||0),pl:gv("cfPl")||(Number(gv("cfPg"))>0?"1 adag":""),pg:Math.round(Number(gv("cfPg"))||0),cat:"C",src:"sajat"};
+      var cn=strLim(gv("cfN"),120),ck=Number(gv("cfK"));
+      if(!cn||!(ck>=0)||ck>20000||gv("cfK")===""){toast("A név és a kcal / 100 g kötelező");break;}
+      var cfo={id:"c"+Date.now().toString(36),n:cn,k:Math.round(ck),p:r1(Math.max(0,Math.min(1000,Number(gv("cfP"))||0))),c:r1(Math.max(0,Math.min(1000,Number(gv("cfC"))||0))),f:r1(Math.max(0,Math.min(1000,Number(gv("cfF"))||0))),pl:strLim(gv("cfPl"),60)||(Number(gv("cfPg"))>0?"1 adag":""),pg:Math.max(0,Math.min(5000,Math.round(Number(gv("cfPg"))||0))),cat:"C",src:"sajat"};
+      if(cfo.pg<0)cfo.pg=0;
       S.customFoods=S.customFoods||[];S.customFoods.unshift(cfo);save();UI.cfOpen=false;if(UI.det)UI.det.cf=false;render();showPick(cfo);toast("Saját étel mentve: "+cn);break;
     case "delCustom":
       var dc=(S.customFoods||[]).filter(function(x){return x.id===v;})[0];if(!dc||!confirm("Törlöd a(z) \""+dc.n+"\" saját ételt? A már felvett bejegyzések megmaradnak."))break;
@@ -799,9 +1268,9 @@ document.addEventListener("click",function(ev){
     case "delMeal":d=ensureDay(k);d.meals.splice(+v,1);afterChange(k);break;
     case "saveSettings":
       var g=function(id){return document.getElementById(id).value;};
-      var ns={name:g("sName").trim()||"András",stageStart:g("sStart")||S.settings.stageStart,fastTarget:+g("sFast"),sleepMin:+g("sSMin"),sleepMax:+g("sSMax"),kcalMin:+g("sKMin"),kcalMax:+g("sKMax")};
+      var ns={name:strLim(g("sName"),40)||"András",stageStart:validDateKey(g("sStart"))?g("sStart"):S.settings.stageStart,fastTarget:+g("sFast"),sleepMin:+g("sSMin"),sleepMax:+g("sSMax"),kcalMin:+g("sKMin"),kcalMax:+g("sKMax"),notifyFast:S.settings.notifyFast===true};
       if(!(ns.fastTarget>0)||!(ns.sleepMin>0)||!(ns.sleepMax>=ns.sleepMin)||!(ns.kcalMin>0)||!(ns.kcalMax>=ns.kcalMin)){toast("Ellenőrizd az értékeket: a max nem lehet kisebb a min-nél");break;}
-      S.settings=ns;UI.stageView=null;S.lastStageSeen=Math.max(0,stageIndexOf(todayKey()));save();compute();checkBadges();render();toast("Beállítások mentve");break;
+      S.settings=ns;UI.stageView=null;UI.wStage=null;S.lastStageSeen=Math.max(0,stageIndexOf(todayKey()));save();compute();checkBadges();armNotifications();render();toast("Beállítások mentve");break;
     case "export":
       var blob=new Blob([JSON.stringify(S,null,2)],{type:"application/json"}),url=URL.createObjectURL(blob),ln=document.createElement("a");
       ln.href=url;ln.download="egeszseg-kihivas-mentes-"+todayKey()+".json";document.body.appendChild(ln);ln.click();setTimeout(function(){URL.revokeObjectURL(url);ln.remove();},1000);toast("Mentés letöltve");break;
@@ -809,29 +1278,40 @@ document.addEventListener("click",function(ev){
     case "reset":
       if(!confirm("Biztosan törölsz MINDEN adatot? Ez nem vonható vissza."))break;
       var w=prompt('A megerősítéshez írd be: TÖRLÉS');if(w==null||w.trim().toUpperCase()!=="TÖRLÉS"){toast("Törlés megszakítva");break;}
-      S=defaults();save();UI={tab:"today",edit:todayKey(),cal:todayKey().slice(0,7),week:mondayOf(todayKey()),stageView:null};compute();render();toast("Minden adat törölve. Új kezdet!");break;
+      S=defaults();save();UI={tab:"today",edit:todayKey(),cal:todayKey().slice(0,7),week:mondayOf(todayKey()),stageView:null,wStage:null};armNotifications();compute();render();toast("Minden adat törölve. Új kezdet!");break;
   }
 });
 document.addEventListener("change",function(ev){
   var el=ev.target;
   if(el.id==="impFile"){
-    var f=el.files&&el.files[0];if(!f)return;var rd=new FileReader();
-    rd.onload=function(){try{var o=JSON.parse(rd.result);if(!o||typeof o.days!=="object"||!o.settings)throw new Error("x");
+    var f=el.files&&el.files[0];if(!f)return;
+    if(f.size>1500000){toast("A mentésfájl túl nagy (maximum 1,5 MB).");el.value="";return;}
+    var rd=new FileReader();
+    rd.onload=function(){try{var o=JSON.parse(rd.result);if(!o||typeof o!=="object"||Array.isArray(o)||!o.days||typeof o.days!=="object"||Array.isArray(o.days)||!o.settings||typeof o.settings!=="object"||Array.isArray(o.settings))throw new Error("x");
       if(!confirm("Az importálás felülírja a jelenlegi adatokat ("+Object.keys(o.days).length+" nap). Folytatod?"))return;
-      S=normalize(o);save();compute();render();toast("Adatok visszatöltve");}catch(e){toast("Hibás mentésfájl");}};
+      S=normalize(o);save();compute();armNotifications();render();toast("Adatok visszatöltve");}catch(e){toast("Hibás mentésfájl");}};
     rd.readAsText(f);el.value="";return;
   }
   var fld=el.getAttribute("data-f");if(!fld)return;
   var k=UI.edit,v=el.value;
-  if(fld==="timerStart"){if(v&&S.timer&&parseDT(v)<=new Date()){S.timer.start=v;save();render();}else toast("A kezdés nem lehet a jövőben");return;}
+  if(fld==="timerStart"){var ts=validDT(v);if(ts&&S.timer&&parseDT(ts)<=new Date()){S.timer.start=ts;save();armNotifications();render();}else toast("A kezdés nem lehet a jövőben");return;}
+  if(fld==="weight"){
+    var raw=String(v).replace(",",".").trim(),dW=ensureDay(k);
+    if(raw===""){delete dW.weight;afterChange(k);return;}
+    var wv=numIn(raw,20,400,1);
+    if(wv==null){toast("Adj meg egy testsúlyt 20 és 400 kg között (pl. 82,4)");render();return;}
+    dW.weight=wv;afterChange(k);return;
+  }
   var d=ensureDay(k);
   if(fld==="fastManual"||fld==="sleepManual"){
     var n=String(v).replace(",",".");
-    if(n===""){delete d[fld];}else{d[fld]=Number(n);if(fld==="fastManual"){delete d.fastStart;delete d.fastEnd;}else{delete d.bed;delete d.wake;}}
-  }else{
-    if(v)d[fld]=v;else delete d[fld];
-    if(fld==="fastStart"&&v&&!d.fastEnd){d.fastEnd=k+"T12:00";}
-    if(fld==="fastEnd"&&v&&!d.fastStart){d.fastStart=addDays(k,-1)+"T20:00";}
+    if(n===""){delete d[fld];}else{var nv=numIn(n,0,fld==="fastManual"?96:24,2);if(nv==null){toast("Érvénytelen szám");render();return;}d[fld]=nv;if(fld==="fastManual"){delete d.fastStart;delete d.fastEnd;}else{delete d.bed;delete d.wake;}}
+  }else if(fld==="fastStart"||fld==="fastEnd"||fld==="bed"||fld==="wake"){
+    if(!v)delete d[fld];
+    else if(fld==="bed"||fld==="wake"){var tv=validTime(v);if(!tv){toast("Érvénytelen idő");render();return;}d[fld]=tv;}
+    else{var dv=validDT(v);if(!dv){toast("Érvénytelen időpont");render();return;}d[fld]=dv;}
+    if(fld==="fastStart"&&d.fastStart&&!d.fastEnd)d.fastEnd=k+"T12:00";
+    if(fld==="fastEnd"&&d.fastEnd&&!d.fastStart)d.fastStart=addDays(k,-1)+"T20:00";
     if(fld==="fastStart"||fld==="fastEnd")delete d.fastManual;
     if(fld==="bed"||fld==="wake")delete d.sleepManual;
   }
@@ -847,12 +1327,13 @@ document.addEventListener("keydown",function(ev){
   if(ev.key==="Enter"&&ev.target.id==="pickAmt"){ev.preventDefault();var ab=document.querySelector('[data-act="addFood"]');if(ab)ab.click();return;}
   if(ev.key==="Enter"&&ev.target.id==="barcodeIn"){ev.preventDefault();offBarcode(ev.target.value);return;}
   if(ev.key==="Enter"&&ev.target.id==="foodQ"){ev.preventDefault();var first=document.querySelector('#foodRes .fitem');if(first)first.click();return;}if(ev.key==="Enter"&&ev.target.id==="kcalIn"){var b=document.querySelector('[data-act="addMeal"]');if(b)b.click();}});
-document.addEventListener("visibilitychange",function(){if(!document.hidden){var t=todayKey();if(UI.lastToday&&UI.lastToday!==t){if(UI.edit===UI.lastToday)UI.edit=t;compute();render();}UI.lastToday=t;}});
+document.addEventListener("visibilitychange",function(){if(!document.hidden){var t=todayKey();if(UI.lastToday&&UI.lastToday!==t){if(UI.edit===UI.lastToday)UI.edit=t;compute();render();}UI.lastToday=t;armNotifications();}});
 UI.lastToday=todayKey();
 
 /* ---------- indulás ---------- */
 compute();
 render();
+armNotifications();
 // etapváltás értesítés
 (function(){
   var cur=C.cur;
@@ -866,6 +1347,18 @@ render();
   }else if(cur>=0&&S.lastStageSeen==null){S.lastStageSeen=cur;save();}
 })();
 checkBadges();
+if(/[?&]test=1(?:&|$)/.test(location.search)){
+  window.__kihivas={
+    deadlines:function(){return {fast:fastEvent(),eat:eatEvent(),perm:notifPermission(),on:!!S.settings.notifyFast};},
+    check:checkNotifs,
+    arm:armNotifications,
+    state:function(){return JSON.parse(JSON.stringify(S));},
+    xp:function(){compute();return C.xp;},
+    evalDay:function(k){return evalDay(k);},
+    dayXP:function(k){return dayXP(evalDay(k));},
+    baseline:function(start){return stageBaseline(start);}
+  };
+}
 })();
 </script>
 <script>
